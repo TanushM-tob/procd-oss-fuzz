@@ -1,0 +1,145 @@
+#!/usr/bin/make -f
+
+# AFL++ Makefile for procd fuzz target (parseOCI / hotplug)
+# Pattern follows other Makefiles in this workspace.
+
+# -----------------------------------------------------------------------------
+# 1. Compiler detection
+# -----------------------------------------------------------------------------
+CC := afl-clang-lto
+
+# A GCC variant to tolerate some code that clang rejects
+CC_GCC := $(shell which afl-gcc 2>/dev/null)
+ifeq ($(CC_GCC),)
+CC_GCC := $(CC)
+endif
+
+# -----------------------------------------------------------------------------
+# 2. Paths & flags
+# -----------------------------------------------------------------------------
+export DEPS_DIR := $(abspath $(CURDIR)/deps)
+export INSTALL_PREFIX := $(DEPS_DIR)/install
+CFLAGS_BASE := -O2 -fPIC -std=gnu99 -g -Wall -Wno-c23-extensions -D_GNU_SOURCE -DSECCOMP_SUPPORT -D__AFL_COMPILER
+CFLAGS := $(CFLAGS_BASE) -I$(INSTALL_PREFIX)/include -I$(CURDIR) -I/usr/include/json-c -I/usr/include/libubox
+LDFLAGS := -L$(INSTALL_PREFIX)/lib
+
+# Workaround for missing audit constant on some distros
+CFLAGS += -DAUDIT_ARCH_LOONGARCH64=0xc00000e2
+
+# -----------------------------------------------------------------------------
+# 3. Sources
+# -----------------------------------------------------------------------------
+JAIL_SRC = jail/jail.c jail/capabilities.c jail/cgroups.c jail/cgroups-bpf.c \
+           jail/fs.c jail/seccomp.c jail/seccomp-oci.c jail/elf.c
+UTILS_SRC = utils/utils.c
+FUZZER_SRC = procd-fuzz.c
+
+# objects
+JAIL_OBJ = $(JAIL_SRC:%.c=obj/%.o)
+UTILS_OBJ = $(UTILS_SRC:%.c=obj/%.o)
+FUZZER_OBJ = obj/fuzzer.o
+
+OBJ_DIR = obj
+
+FUZZER_BIN = procd_afl_fuzzer
+
+# -----------------------------------------------------------------------------
+# 4. Top-level targets
+# -----------------------------------------------------------------------------
+.PHONY: all deps clean distclean help
+all: deps headers $(FUZZER_BIN)
+
+# -----------------------------------------------------------------------------
+# 5. Dependencies (libubox + libubus)
+# -----------------------------------------------------------------------------
+DEPS_LIBS = \
+  $(INSTALL_PREFIX)/lib/libubox.a \
+  $(INSTALL_PREFIX)/lib/libubus.a
+
+deps: $(DEPS_LIBS)
+	@echo "✓ Dependencies built"
+
+$(INSTALL_PREFIX)/lib/libubox.a:
+	@echo "[libubox] building"
+	@mkdir -p $(DEPS_DIR)
+	@if [ ! -d "$(DEPS_DIR)/libubox" ]; then \
+		cd $(DEPS_DIR) && git clone --depth 1 https://github.com/openwrt/libubox.git; \
+	fi
+	@cd $(DEPS_DIR)/libubox && rm -rf tests examples lua || true
+	@cd $(DEPS_DIR)/libubox && sed -i '/[Aa][Dd][Dd]_SUBDIRECTORY.*examples/d' CMakeLists.txt || true
+	@cd $(DEPS_DIR)/libubox && sed -i '/[Aa][Dd][Dd]_SUBDIRECTORY.*lua/d' CMakeLists.txt || true
+	@cd $(DEPS_DIR)/libubox && mkdir -p build && cd build && \
+		cmake .. -DCMAKE_INSTALL_PREFIX="$(INSTALL_PREFIX)" -DCMAKE_C_COMPILER="$(CC)" \
+		      -DCMAKE_C_FLAGS="-O2 -fPIC -g" -DBUILD_STATIC=ON -DBUILD_SHARED_LIBS=OFF \
+		      -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF && make -j$$(nproc) && make install
+
+$(INSTALL_PREFIX)/lib/libubus.a: $(INSTALL_PREFIX)/lib/libubox.a
+	@echo "[ubus] building"
+	@if [ ! -d "$(DEPS_DIR)/ubus" ]; then \
+		cd $(DEPS_DIR) && git clone --depth 1 https://git.openwrt.org/project/ubus.git; \
+	fi
+	@cd $(DEPS_DIR)/ubus && rm -rf tests examples lua || true
+	@cd $(DEPS_DIR)/ubus && sed -i '/[Aa][Dd][Dd]_SUBDIRECTORY.*examples/d' CMakeLists.txt || true
+	@cd $(DEPS_DIR)/ubus && sed -i '/[Aa][Dd][Dd]_SUBDIRECTORY.*lua/d' CMakeLists.txt || true
+	@cd $(DEPS_DIR)/ubus && mkdir -p build && cd build && \
+		cmake .. -DCMAKE_INSTALL_PREFIX="$(INSTALL_PREFIX)" -DCMAKE_C_COMPILER="$(CC)" \
+		      -DCMAKE_C_FLAGS="-O2 -fPIC -g" -DBUILD_STATIC=ON -DBUILD_SHARED_LIBS=OFF \
+		      -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DCMAKE_EXE_LINKER_FLAGS="-lrt" && \
+		make -j$$(nproc) && make install
+
+# -----------------------------------------------------------------------------
+# 6. Generated headers (capabilities-names.h & syscall-names.h)
+# -----------------------------------------------------------------------------
+HEADERS = capabilities-names.h syscall-names.h
+
+headers: $(HEADERS)
+
+capabilities-names.h: make_capabilities_h.sh | deps
+	@sed -i 's/\r$$//' $< || true
+	chmod +x $<
+	bash ./make_capabilities_h.sh $(CC) > $@
+
+syscall-names.h: make_syscall_h.sh | deps
+	@sed -i 's/\r$$//' $< || true
+	chmod +x $<
+	bash ./make_syscall_h.sh $(CC) > $@
+
+# -----------------------------------------------------------------------------
+# 7. Compilation rules
+# -----------------------------------------------------------------------------
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)/jail $(OBJ_DIR)/utils
+
+# compile jail sources; special rule for jail.c to rename main
+obj/jail/%.o: jail/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+obj/jail/jail.o: jail/jail.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -Dmain=procd_jail_main -c $< -o $@
+
+obj/utils/utils.o: utils/utils.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(FUZZER_OBJ): $(FUZZER_SRC) $(HEADERS) deps | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -Wno-error=implicit-function-declaration -c $< -o $@
+
+# -----------------------------------------------------------------------------
+# 8. Linking
+# -----------------------------------------------------------------------------
+$(FUZZER_BIN): $(JAIL_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) headers
+	$(CC) $(CFLAGS) $(JAIL_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) \
+		$(LDFLAGS) -lubus -lubox -lblobmsg_json -ljson-c -pthread -lrt \
+		-o $@
+	@echo "✓ Built: $@"
+
+# -----------------------------------------------------------------------------
+# 9. Convenience
+# -----------------------------------------------------------------------------
+clean:
+	rm -rf obj $(FUZZER_BIN) $(HEADERS)
+
+distclean: clean
+	rm -rf $(DEPS_DIR)
+
+help:
+	@echo "AFL++ procd fuzzer Makefile" 
