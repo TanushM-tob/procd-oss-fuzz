@@ -84,48 +84,48 @@ static int create_temp_json_file(const uint8_t *data, size_t size) {
     return 0;
 }
 
-static int validate_oci_input(const uint8_t *data, size_t size) {
-    bool has_brace = false;
-    bool has_quote = false;
+// static int validate_oci_input(const uint8_t *data, size_t size) {
+//     bool has_brace = false;
+//     bool has_quote = false;
 
-    for (size_t i = 0; i < size && i < 100; i++) {
-        if (data[i] == '{' || data[i] == '}') {
-            has_brace = true;
-        }
-        if (data[i] == '"') {
-            has_quote = true;
-        }
-        if (data[i] == 0 && i < (size - 1)) {
-            return 0;
-        }
-    }
+//     for (size_t i = 0; i < size && i < 100; i++) {
+//         if (data[i] == '{' || data[i] == '}') {
+//             has_brace = true;
+//         }
+//         if (data[i] == '"') {
+//             has_quote = true;
+//         }
+//         // if (data[i] == 0 && i < (size - 1)) {
+//         //     return 0;
+//         // }
+//     }
 
-    if (!has_brace && !has_quote) {
-        return 0;
-    }
+//     if (!has_brace && !has_quote) {
+//         return 0;
+//     }
 
-    return 1;
-}
+//     return 1;
+// }
 
-static int validate_json_file_input(const uint8_t *data, size_t size) {
-    if (size < 2) return 0;
+// static int validate_json_file_input(const uint8_t *data, size_t size) {
+//     if (size < 2) return 0;
 
-    bool has_json_chars = false;
-    for (size_t i = 0; i < size && i < 50; i++) {
-        if (data[i] == '{' || data[i] == '[' || data[i] == '"') {
-            has_json_chars = true;
-            break;
-        }
-    }
+//     bool has_json_chars = false;
+//     for (size_t i = 0; i < size && i < 50; i++) {
+//         if (data[i] == '{' || data[i] == '[' || data[i] == '"') {
+//             has_json_chars = true;
+//             break;
+//         }
+//     }
 
-    if (!has_json_chars) return 0;
+//     if (!has_json_chars) return 0;
 
-    for (size_t i = 0; i < size - 1; i++) {
-        if (data[i] == 0) return 0;
-    }
+//     for (size_t i = 0; i < size - 1; i++) {
+//         if (data[i] == 0) return 0;
+//     }
 
-    return 1;
-}
+//     return 1;
+// }
 
 static enum vjson_state vjson_parse_token(json_tokener *tok, char *buf, ssize_t len, char **err) {
     json_object *jsobj = NULL;
@@ -216,23 +216,23 @@ static void fuzz_hotplug_handler(const uint8_t *data, size_t size) {
     free(buf);
 }
 
-static int validate_hotplug_input(const uint8_t *data, size_t size) {
-    if (size < 3) return 0;
+// static int validate_hotplug_input(const uint8_t *data, size_t size) {
+//     if (size < 3) return 0;
 
-    for (size_t i = 0; i < size - 1; i++) {
-        if (data[i] == 0) return 0;
-    }
+//     for (size_t i = 0; i < size - 1; i++) {
+//         if (data[i] == 0) return 0;
+//     }
 
-    bool has_equals = false;
-    for (size_t i = 0; i < size; i++) {
-        if (data[i] == '=') {
-            has_equals = true;
-            break;
-        }
-    }
+//     bool has_equals = false;
+//     for (size_t i = 0; i < size; i++) {
+//         if (data[i] == '=') {
+//             has_equals = true;
+//             break;
+//         }
+//     }
 
-    return has_equals ? 1 : 0;
-}
+//     return has_equals ? 1 : 0;
+// }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (size < 10) {
@@ -245,10 +245,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
     switch (pick) {
         case 0: {
-            if (!validate_oci_input(fuzz_data, fuzz_size)) {
-                return 0;
-            }
-
             if (create_temp_json_file(fuzz_data, fuzz_size) != 0) {
                 return 0;
             }
@@ -259,9 +255,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
 
         case 1: {
-            if (!validate_json_file_input(fuzz_data, fuzz_size)) {
-                return 0;
-            }
 
             if (create_temp_json_file(fuzz_data, fuzz_size) != 0) {
                 return 0;
@@ -283,9 +276,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
 
         case 2: {
-            if (!validate_json_file_input(fuzz_data, fuzz_size)) {
-                return 0;
-            }
 
             char *err = NULL;
             vjson_parse_fuzz(fuzz_data, fuzz_size, &err);
@@ -293,10 +283,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
 
         case 3: {
-            if (!validate_hotplug_input(fuzz_data, fuzz_size)) {
-                return 0;
-            }
-
             fuzz_hotplug_handler(fuzz_data, fuzz_size);
             break;
         }
@@ -305,38 +291,38 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     return 0;
 }
 
-// #ifndef __AFL_FUZZ_TESTCASE_LEN
+#ifndef __AFL_FUZZ_TESTCASE_LEN
 
-// ssize_t fuzz_len;
-// unsigned char fuzz_buf[1024000];
+ssize_t fuzz_len;
+unsigned char fuzz_buf[1024000];
 
-// #define __AFL_FUZZ_TESTCASE_LEN fuzz_len
-// #define __AFL_FUZZ_TESTCASE_BUF fuzz_buf  
-// #define __AFL_FUZZ_INIT() void sync(void);
-// #define __AFL_LOOP(x) \
-//     ((fuzz_len = read(0, fuzz_buf, sizeof(fuzz_buf))) > 0 ? 1 : 0)
-// #define __AFL_INIT() sync()
+#define __AFL_FUZZ_TESTCASE_LEN fuzz_len
+#define __AFL_FUZZ_TESTCASE_BUF fuzz_buf  
+#define __AFL_FUZZ_INIT() void sync(void);
+#define __AFL_LOOP(x) \
+    ((fuzz_len = read(0, fuzz_buf, sizeof(fuzz_buf))) > 0 ? 1 : 0)
+#define __AFL_INIT() sync()
 
-// #endif
+#endif
 
-// __AFL_FUZZ_INIT();
+__AFL_FUZZ_INIT();
 
-// #pragma clang optimize off
-// #pragma GCC optimize("O0")
+#pragma clang optimize off
+#pragma GCC optimize("O0")
 
-// int main(int argc, char **argv)
-// {
-//     (void)argc; (void)argv; 
+int main(int argc, char **argv)
+{
+    (void)argc; (void)argv; 
     
-//     ssize_t len;
-//     unsigned char *buf;
+    ssize_t len;
+    unsigned char *buf;
 
-//     __AFL_INIT();
-//     buf = __AFL_FUZZ_TESTCASE_BUF;
-//     while (__AFL_LOOP(INT_MAX)) {
-//         len = __AFL_FUZZ_TESTCASE_LEN;
-//         LLVMFuzzerTestOneInput(buf, (size_t)len);
-//     }
+    __AFL_INIT();
+    buf = __AFL_FUZZ_TESTCASE_BUF;
+    while (__AFL_LOOP(INT_MAX)) {
+        len = __AFL_FUZZ_TESTCASE_LEN;
+        LLVMFuzzerTestOneInput(buf, (size_t)len);
+    }
     
-//     return 0;
-// }
+    return 0;
+}
