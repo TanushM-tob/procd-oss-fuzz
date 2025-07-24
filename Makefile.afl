@@ -31,11 +31,15 @@ CFLAGS += -DAUDIT_ARCH_LOONGARCH64=0xc00000e2
 # -----------------------------------------------------------------------------
 JAIL_SRC = jail/jail.c jail/capabilities.c jail/cgroups.c jail/cgroups-bpf.c \
            jail/fs.c jail/seccomp.c jail/seccomp-oci.c jail/elf.c
+SERVICE_SRC = 
+PLUG_SRC = 
 UTILS_SRC = utils/utils.c
 FUZZER_SRC = procd-fuzz.c
 
 # objects
 JAIL_OBJ = $(JAIL_SRC:%.c=obj/%.o)
+SERVICE_OBJ = $(SERVICE_SRC:%.c=obj/%.o)
+PLUG_OBJ = $(PLUG_SRC:%.c=obj/%.o)
 UTILS_OBJ = $(UTILS_SRC:%.c=obj/%.o)
 FUZZER_OBJ = obj/fuzzer.o
 
@@ -108,7 +112,7 @@ syscall-names.h: make_syscall_h.sh | deps
 # 7. Compilation rules
 # -----------------------------------------------------------------------------
 $(OBJ_DIR):
-	mkdir -p $(OBJ_DIR)/jail $(OBJ_DIR)/utils
+	mkdir -p $(OBJ_DIR)/jail $(OBJ_DIR)/service $(OBJ_DIR)/plug $(OBJ_DIR)/utils
 
 # compile jail sources; special rule for jail.c to rename main
 obj/jail/%.o: jail/%.c | $(OBJ_DIR)
@@ -116,6 +120,17 @@ obj/jail/%.o: jail/%.c | $(OBJ_DIR)
 
 obj/jail/jail.o: jail/jail.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -Dmain=procd_jail_main -c $< -o $@
+
+# compile service sources
+obj/service/%.o: service/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# compile plug sources
+obj/plug/%.o: plug/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+obj/hotplug-dispatch.o: hotplug-dispatch.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 obj/utils/utils.o: utils/utils.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -126,8 +141,8 @@ $(FUZZER_OBJ): $(FUZZER_SRC) $(HEADERS) deps | $(OBJ_DIR)
 # -----------------------------------------------------------------------------
 # 8. Linking
 # -----------------------------------------------------------------------------
-$(FUZZER_BIN): $(JAIL_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) headers
-	$(CC) $(CFLAGS) $(JAIL_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) \
+$(FUZZER_BIN): $(JAIL_OBJ) $(SERVICE_OBJ) $(PLUG_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) headers
+	$(CC) $(CFLAGS) $(JAIL_OBJ) $(SERVICE_OBJ) $(PLUG_OBJ) $(UTILS_OBJ) $(FUZZER_OBJ) \
 		$(LDFLAGS) -lubus -lubox -lblobmsg_json -ljson-c -pthread -lrt \
 		-o $@
 	@echo "✓ Built: $@"
